@@ -29,6 +29,9 @@ pub fn run(){
     match cli.command {
         Commands::Scan { url, method } => {
             println!("Scanning: {} [{}]", url,method);
+            if let Err(e) = crate::engine::scanner::scan(&url){
+                println!("Error: {}", e);
+            }
 
             match  http::get(&url){
                 Ok(res) => {

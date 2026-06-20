@@ -24,6 +24,10 @@ pub fn scan(target_url: &str) -> anyhow::Result<()>{
         for payload in payloads::error_based()  {
             let injected_url = replace_param(target_url, param_name, payload)?;
             let res = http::get(&injected_url)?;
+            
+            if let Some(db) = super::detector::detect_error_based(&res.body) {
+                println!("[VULN] Error-based SQLi | param: {} | DB: {} | payload: {}", param_name,db, payload);
+            }
         }
         
         for (true_payload, false_payload) in payloads::boolean_blind()  {
@@ -31,11 +35,19 @@ pub fn scan(target_url: &str) -> anyhow::Result<()>{
            let false_url = replace_param(target_url, param_name, false_payload)?;
            let true_res = http::get(&true_url)?;
            let false_res = http::get(&false_url)?;
+        
+           if super::detector::detect_boolean_blind(baseline.body.len(), &true_res.body, &false_res.body) {
+               println!("[VULN] Boolean-Blind SQLi | param: {} | payload: {}", param_name, true_payload);
+           }
         }
 
         for (payload, db_type) in payloads::time_blind()  {
             let injected_url = replace_param(target_url, param_name, payload)?;
             let res = http::get(&injected_url)?;
+
+            if super::detector::detect_time_blind(baseline.response_time_ms, res.response_time_ms, 4000) {
+                println!("[VULN] Time-Blind SQLi | param: {} | DB: {} | payload: {}", param_name, db_type, payload)
+            }
         }
     }
     Ok(())
@@ -46,7 +58,7 @@ fn replace_param(url_str: &str, param: &str, payload: &str) -> anyhow::Result<St
     let mut parsed = Url::parse(url_str)?;
     let new_query: Vec<(String, String)> = parsed
     .query_pairs() 
-    .map(|k, v| {
+    .map(|(k, v)| {
         if k == param {
             (k.to_string(), payload.to_string())
         }else {
