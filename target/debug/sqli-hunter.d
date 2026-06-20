@@ -1,0 +1,1 @@
+/mnt/storage/Archlinux/Code/sqli-hunter/target/debug/sqli-hunter: /mnt/storage/Archlinux/Code/sqli-hunter/src/cli.rs /mnt/storage/Archlinux/Code/sqli-hunter/src/http/mod.rs /mnt/storage/Archlinux/Code/sqli-hunter/src/main.rs /mnt/storage/Archlinux/Code/sqli-hunter/src/payloads/mod.rs
