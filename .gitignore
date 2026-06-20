@@ -1,0 +1,36 @@
+# --- Build Artifacts ---
+# Block all local compilation artifacts and binaries
+/target/
+
+# --- Cargo Lock File ---
+# CRITICAL FOR PRODUCTION: Never ignore Cargo.lock in production applications/executables.
+# Un-comment the line below ONLY if this repo is exclusively a shared library crate.
+# Cargo.lock
+
+# --- Development & IDEs ---
+# JetBrains (IntelliJ, RustRover)
+.idea/
+*.iml
+
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Text Editors
+*.swp
+*~
+.DS_Store
+
+# --- Security & Environments ---
+# Prevent secrets, credentials, and API keys from leaking
+.env
+.env.*
+!.env.example
+
+# --- Testing & Profiles ---
+# Instability or performance profiles
+cargo-timing.html
+*.profraw
+
