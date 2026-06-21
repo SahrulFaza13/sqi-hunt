@@ -19,6 +19,9 @@ pub enum Commands{
 
         #[arg(long)]
         cookie: Option<String>,
+
+        #[arg(short, long, default_value = "error")]
+        r#type: String,
     },
     Explain {
         sqli_type: String, 
@@ -28,9 +31,9 @@ pub enum Commands{
 pub fn run(){
     let cli = Cli::parse();
     match cli.command {
-        Commands::Scan { url, method, cookie } => {
+        Commands::Scan { url, method, cookie, r#type} => {
             println!("Scanning: {} [{}]", url,method);
-            if let Err(e) = crate::engine::scanner::scan(&url, cookie.as_deref()){
+            if let Err(e) = crate::engine::scanner::scan(&url, cookie.as_deref(), &r#type){
                 println!("Error: {}", e);
             }
         }

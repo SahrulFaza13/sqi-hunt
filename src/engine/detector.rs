@@ -53,3 +53,20 @@ pub fn extract_data(body: &str) -> Vec<String>{
     results
 }
 
+pub fn extract_value(body: &str) -> Option<String> {
+    let document = Html::parse_document(body);
+    let selector = Selector::parse("pre").unwrap();
+
+    for element in document.select(&selector)  {
+        let text = element.inner_html();
+        if let Some(pos) = text.find("First name: "){
+            let after = &text[pos + 11..];
+            let end = after.find("<br").unwrap_or(after.len());
+            let value = after[..end].trim().to_string();
+            if !value.is_empty() && value != "admin" {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
