@@ -1,7 +1,5 @@
 use clap::{Parser, Subcommand};
 
-use crate::http;
-
 #[derive(Parser)]
 #[command(name = "sqli-hunter")]
 #[command(about = "Educational SQL injection scanner")]
@@ -18,6 +16,9 @@ pub enum Commands{
 
         #[arg(short, long, default_value = "GET")]
         method: String,
+
+        #[arg(long)]
+        cookie: Option<String>,
     },
     Explain {
         sqli_type: String, 
@@ -27,21 +28,10 @@ pub enum Commands{
 pub fn run(){
     let cli = Cli::parse();
     match cli.command {
-        Commands::Scan { url, method } => {
+        Commands::Scan { url, method, cookie } => {
             println!("Scanning: {} [{}]", url,method);
-            if let Err(e) = crate::engine::scanner::scan(&url){
+            if let Err(e) = crate::engine::scanner::scan(&url, cookie.as_deref()){
                 println!("Error: {}", e);
-            }
-
-            match  http::get(&url){
-                Ok(res) => {
-                    println!("Status:   {}", res.status);
-                    println!("Time:     {}ms", res.response_time_ms);
-                    println!("Body:     {}...", &res.body[..res.body.len().min(200)]);
-                }
-                Err(e) => {
-                    println!("Error:    {}", e);
-                }
             }
         }
         Commands::Explain { sqli_type } => {

@@ -1,5 +1,6 @@
 use std::time::Instant;
 use reqwest::blocking::Client;
+use reqwest::redirect::Policy;
 
 pub struct HttpResponse {
     pub status: u16,
@@ -7,11 +8,17 @@ pub struct HttpResponse {
     pub response_time_ms: u128,
 }
 
-pub fn get(url: &str) -> anyhow::Result<HttpResponse>{
+pub fn get(url: &str, cookie: Option<&str>) -> anyhow::Result<HttpResponse>{
     let start = Instant::now();
-    let client = Client::new();
+    let client = Client::builder()
+        .redirect(Policy::none())
+        .build()?;
+    let mut req = client.get(url);
+    if  let Some(c) = cookie {
+        req = req.header("Cookie", c)
+    }
 
-    let res = client.get(url).send()?;
+    let res = req.send()?;
     
     let status = res.status().as_u16();
     let body = res.text()?;

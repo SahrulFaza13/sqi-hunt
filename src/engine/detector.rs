@@ -1,4 +1,5 @@
 use regex::Regex;
+use scraper::{Html, Node::{Document, Text}, Selector};
 
 pub fn detect_error_based(body: &str) -> Option<String>{
     let signatures: Vec<(&str, &str)> = vec![
@@ -37,5 +38,18 @@ pub fn detect_boolean_blind(baseline_len: usize, true_body: &str, false_body: &s
 
 pub fn detect_time_blind(baseline_ms: u128, injected_ms: u128, threshold_ms: u128) -> bool{
     injected_ms > baseline_ms + threshold_ms
+}
+
+pub fn extract_data(body: &str) -> Vec<String>{
+    let document = Html::parse_document(body);
+    let selector = Selector::parse("pre").unwrap();
+
+    let mut results = Vec::new();
+    for element in document.select(&selector)  {
+        let text = element.inner_html();
+        let cleaned = text.replace("<br />", " | ").replace("<br>", " | ");
+        results.push(cleaned);
+    }
+    results
 }
 
