@@ -29,6 +29,7 @@ pub enum Commands{
 }
 
 pub fn run(){
+    crate::disclaimer::print_warning();
     let cli = Cli::parse();
     match cli.command {
         Commands::Scan { url, method, cookie, r#type} => {

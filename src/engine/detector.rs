@@ -1,5 +1,42 @@
+use clap::ArgAction;
 use regex::Regex;
-use scraper::{Html, Node::{Document, Text}, Selector};
+use scraper::{Html, Selector};
+use colored::Colorize;
+
+#[derive(Debug)]
+pub struct Finding {
+    pub sqli_type: String,
+    pub param: String,
+    pub db_type : Option<String>,
+    pub payload: String,
+    pub evidence: String,
+}
+
+impl std::fmt::Display for Finding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let header = format!("[VULN] {} SQLi", self.sqli_type).red().bold();
+        let param =format!("param: {}", self.param).yellow();
+        let db_str = self.db_type.as_deref().unwrap_or("");
+        let db = if db_str.is_empty() {
+            String::new()
+        } else {
+            format!("DB: {}", db_str).cyan().to_string()
+        };
+        let payload = format!("payload: {}", self.payload).green();
+        let evidence = format!("    -> {}", self.evidence).dimmed();
+
+        if db.is_empty() {
+            write!(f, "{} | {} {}", header, param, payload)?;
+        }else {
+            write!(f, "{} | {} {} {}", header, param, db, payload)?;
+        }
+
+        if !self.evidence.is_empty() {
+            write!(f, "\n{}", evidence);
+        }
+        Ok(())
+    }
+}
 
 pub fn detect_error_based(body: &str) -> Option<String>{
     let signatures: Vec<(&str, &str)> = vec![

