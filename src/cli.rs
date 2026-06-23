@@ -39,7 +39,7 @@ pub fn run(){
             }
         }
         Commands::Explain { sqli_type } => {
-            println!("Explaining: {}", sqli_type);
+            crate::explain::explain(&sqli_type);
         }
     }
 }
