@@ -8,7 +8,7 @@ use url::Url;
 
 
 pub fn scan(target_url: &str, cookie: Option<&str>, scan_type: &str) -> anyhow::Result<()>{
-
+    crate::disclaimer::print_warning();
     let parsed = Url::parse(target_url)?;
     let  params: Vec<(String, String)> = parsed
         .query_pairs()

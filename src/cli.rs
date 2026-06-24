@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "sqli-hunter")]
+#[command(name = "sqi-hunter")]
 #[command(about = "Educational SQL injection scanner")]
 pub struct Cli {
     #[command(subcommand)]
@@ -29,7 +29,7 @@ pub enum Commands{
 }
 
 pub fn run(){
-    crate::disclaimer::print_warning();
+    crate::disclaimer::print_banner();
     let cli = Cli::parse();
     match cli.command {
         Commands::Scan { url, method, cookie, r#type} => {

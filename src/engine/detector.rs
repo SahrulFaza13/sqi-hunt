@@ -1,4 +1,4 @@
-use clap::ArgAction;
+//use clap::ArgAction;
 use regex::Regex;
 use scraper::{Html, Selector};
 use colored::Colorize;
@@ -32,7 +32,7 @@ impl std::fmt::Display for Finding {
         }
 
         if !self.evidence.is_empty() {
-            write!(f, "\n{}", evidence);
+           let _ = write!(f, "\n{}", evidence);
         }
         Ok(())
     }
