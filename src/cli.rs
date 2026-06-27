@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "sqi-hunter")]
+#[command(name = "sqi-hunt")]
 #[command(about = "Educational SQL injection scanner")]
 pub struct Cli {
     #[command(subcommand)]
@@ -20,6 +20,9 @@ pub enum Commands{
         #[arg(long)]
         cookie: Option<String>,
 
+        #[arg(long)]
+        data: Option<String>,
+
         #[arg(short, long, default_value = "error")]
         r#type: String,
     },
@@ -32,9 +35,9 @@ pub fn run(){
     crate::disclaimer::print_banner();
     let cli = Cli::parse();
     match cli.command {
-        Commands::Scan { url, method, cookie, r#type} => {
+        Commands::Scan { url, method, cookie, r#type, data} => {
             println!("Scanning: {} [{}]", url,method);
-            if let Err(e) = crate::engine::scanner::scan(&url, cookie.as_deref(), &r#type){
+            if let Err(e) = crate::engine::scanner::scan(&url, cookie.as_deref(), &r#type, &method, data.as_deref(),){
                 println!("Error: {}", e);
             }
         }
